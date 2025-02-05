@@ -1,0 +1,52 @@
+volumes:
+  caddy_data:
+  caddy_config:
+
+services:
+  app:
+    build:
+      context: FE
+      dockerfile: Dockerfile
+    networks:
+      - univ_cabi
+    env_file:
+      - ./FE/.env
+    init: true
+    expose:
+      - 5173
+
+  web:
+    build: BE
+    command: >
+      sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./BE:/backend
+    ports:
+      - 8000:8000
+    expose:
+      - 8000
+    env_file:
+      - ./BE/.env
+    init: true
+    networks:
+      - univ_cabi
+
+  caddy:
+    init: true
+    image: caddy
+    container_name: caddy
+    build:
+      context: ./Caddy
+      dockerfile: Dockerfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "5173:5173"
+    networks:
+      - univ_cabi
+    restart: on-failure:3
+
+networks:
+  univ_cabi:
+    driver: bridge
