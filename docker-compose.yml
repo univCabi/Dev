@@ -1,9 +1,39 @@
 volumes:
   caddy_data:
   caddy_config:
+  mysql-data:
+  redis-data:
 
 services:
-  app:
+  # Spring Boot Backend
+  backend:
+    build:
+      context: univCabi
+      dockerfile: Dockerfile
+    networks:
+      - univ_cabi
+    env_file:
+      - ./univCabi/.env
+    environment:
+      # Docker 컨테이너 이름으로 호스트 지정
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/mysql_univcabi?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    init: true
+    expose:
+      - 8000
+    ports:
+      - 8000:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  # Frontend (if you have a separate frontend)
+  frontend:
     build:
       context: FE
       dockerfile: Dockerfile
@@ -15,22 +45,70 @@ services:
     expose:
       - 5173
 
-  web:
-    build: BE
-    command: >
-      sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+  # MySQL Database
+  mysql:
+    image: mysql:8.0.33
+    container_name: univcabi-mysql
     volumes:
-      - ./BE:/backend
-    ports:
-      - 8000:8000
-    expose:
-      - 8000
-    env_file:
-      - ./BE/.env
-    init: true
+      - mysql-data:/var/lib/mysql
+      - ./db/migration:/docker-entrypoint-initdb.d
     networks:
       - univ_cabi
+    env_file:
+      - ./univCabi/.env
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # Redis Service
+  redis:
+    image: redis:latest
+    container_name: univcabi-redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - univ_cabi
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: wurstmeister/zookeeper
+    container_name: univcabi-zookeeper
+    networks:
+      - univ_cabi
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka Service
+  kafka:
+    image: wurstmeister/kafka
+    container_name: univcabi-kafka
+    networks:
+      - univ_cabi
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CREATE_TOPICS: "cabinet-rent-topic:3:1,cabinet-return-topic:3:1"
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test:
+        ["CMD", "kafka-topics.sh", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Caddy Reverse Proxy
   caddy:
     init: true
     image: caddy
