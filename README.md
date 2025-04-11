@@ -21,3 +21,5 @@ git submodule update --remote
 # 로컬에서 작업 중인 부분과 원격에 작업된 부분이 다른 경우 머지까지 진행
 git submodule update --remote --merge
 ```
+
+"spring test"
