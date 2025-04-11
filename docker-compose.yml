@@ -8,12 +8,12 @@ services:
   # Spring Boot Backend
   backend:
     build:
-      context: univCabi
+      context: BE_Spring
       dockerfile: Dockerfile
     networks:
       - univ_cabi
     env_file:
-      - ./univCabi/.env
+      - ./BE_Spring/.env
     environment:
       # Docker 컨테이너 이름으로 호스트 지정
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/mysql_univcabi?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
@@ -55,7 +55,7 @@ services:
     networks:
       - univ_cabi
     env_file:
-      - ./univCabi/.env
+      - ./BE_Spring/.env
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s

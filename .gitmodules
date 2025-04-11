@@ -6,3 +6,7 @@
 	path = BE
 	url = https://github.com/univCabi/BE.git
 	branch = main
+[submodule "BE_Spring"]
+	path= BE_Spring
+	url = https://github.com/univCabi/BE_Spring.git
+	branch = dev
