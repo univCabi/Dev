@@ -1,21 +1,11 @@
 volumes:
   caddy_data:
   caddy_config:
+  mysql-data:
+  redis-data:
 
 services:
-  app:
-    build:
-      context: FE
-      dockerfile: Dockerfile
-    networks:
-      - univ_cabi
-    env_file:
-      - ./FE/.env
-    init: true
-    expose:
-      - 5173
-
-  web:
+  backend:
     build: BE
     command: >
       sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
@@ -31,6 +21,125 @@ services:
     networks:
       - univ_cabi
 
+  # Frontend (if you have a separate frontend)
+  frontend:
+    build:
+      context: FE
+      dockerfile: Dockerfile
+    networks:
+      - univ_cabi
+    env_file:
+      - ./FE/.env
+    init: true
+    expose:
+      - 5173
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0.33
+    container_name: mysql
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/migration:/docker-entrypoint-initdb.d
+    networks:
+      - univ_cabi
+    env_file:
+      - ./BE_Spring/.env
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Service
+  redis:
+    image: redis:latest
+    container_name: redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - univ_cabi
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379" # Redis 포트 노출 (필요시)
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: wurstmeister/zookeeper
+    container_name: zookeeper
+    networks:
+      - univ_cabi
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Celery Worker (수정됨)
+  celery_worker:
+    build: BE
+    container_name: celery-worker
+    command: celery -A core worker -l info
+    volumes:
+      - ./BE:/backend
+    env_file:
+      - ./BE/.env
+    networks:
+      - univ_cabi
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: on-failure
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+  # Celery Beat (수정됨)
+  celery_beat:
+    build: BE
+    container_name: celery-beat
+    command: celery -A core beat -l info
+    volumes:
+      - ./BE:/backend
+    env_file:
+      - ./BE/.env
+    networks:
+      - univ_cabi
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_started
+    restart: on-failure
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+  # Kafka Service
+  kafka:
+    image: wurstmeister/kafka
+    container_name: kafka
+    networks:
+      - univ_cabi
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CREATE_TOPICS: "cabinet-rent-topic:3:1,cabinet-return-topic:3:1"
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test:
+        ["CMD", "kafka-topics.sh", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Caddy Reverse Proxy
   caddy:
     init: true
     image: caddy
